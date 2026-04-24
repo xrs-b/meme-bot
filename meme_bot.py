@@ -10,8 +10,9 @@ import logging
 import signal
 import sys
 from pathlib import Path
+from datetime import datetime, timedelta
 
-from core.models import Chain, BotConfig, AlertMode, Signal
+from core.models import Chain, BotConfig, AlertMode, Signal, Position
 from core.database import Database
 from core.alert_manager import AlertManager
 from core.signal_detector import SignalDetector
@@ -70,6 +71,14 @@ class MemeBot:
             config
         )
         
+        # Risk Manager
+        from core.risk_manager import RiskManager
+        self.risk_manager = RiskManager(
+            self.db,
+            self.alert_manager,
+            config
+        )
+        
         # Chain Adapters
         self._adapters = {}
         
@@ -97,6 +106,7 @@ class MemeBot:
         # Start all components
         await self.signal_detector.start()
         await self.copy_trader.start()
+        await self.risk_manager.start()
         
         for adapter in self._adapters.values():
             await adapter.start()
@@ -124,6 +134,7 @@ class MemeBot:
         # Stop all components
         await self.signal_detector.stop()
         await self.copy_trader.stop()
+        await self.risk_manager.stop()
         
         for adapter in self._adapters.values():
             await adapter.stop()
@@ -174,13 +185,26 @@ class MemeBot:
         """Handle detected signal"""
         logger.info(f"Signal: {signal.type.value} for {signal.token.symbol} (score: {signal.score})")
         
-        # Alert immediately
+        # Alert immediately (always, even in observation mode)
         await self.alert_manager.alert_signal(signal)
         
-        # Auto-trade if enabled
+        # Auto-trade only if in AUTO_TRADE mode (not observation mode)
         if self.config.alert_mode == AlertMode.AUTO_TRADE:
             if signal.score >= self.config.min_signal_score:
-                await self.trading_engine.execute_buy(signal)
+                # Check risk rules before trading
+                risk_check = self.risk_manager.check_signal_risk(signal)
+                
+                if risk_check['approved']:
+                    # Check position limits
+                    if self.risk_manager.check_total_exposure(
+                        self.config.default_amount_per_trade,
+                        signal.chain
+                    )['approved']:
+                        await self.trading_engine.execute_buy(signal)
+                    else:
+                        logger.info(f"Position limit reached, skipping trade")
+                else:
+                    logger.info(f"Risk check failed: {risk_check['reasons']}")
     
     # ============ TELEGRAM COMMANDS ============
     
@@ -336,6 +360,13 @@ def main():
     """Main entry point"""
     parser = argparse.ArgumentParser(description="Meme Bot - Cross-chain Meme Coin Trading")
     parser.add_argument("--config", type=str, default="config.json", help="Config file path")
+    parser.add_argument("--web", action="store_true", help="Start web dashboard")
+    parser.add_argument("--web-port", type=int, default=8080, help="Web dashboard port")
+    parser.add_argument("--web-host", type=str, default="0.0.0.0", help="Web dashboard host")
+    parser.add_argument("--observe", action="store_true", help="Run in observation mode (no real trading)")
+    parser.add_argument("--backtest", action="store_true", help="Run backtest and exit")
+    parser.add_argument("--backtest-days", type=int, default=7, help="Backtest days")
+    parser.add_argument("--backtest-chain", type=str, default="all", choices=["sol", "bsc", "all"], help="Chain to backtest")
     args = parser.parse_args()
     
     # Load config
@@ -360,10 +391,76 @@ def main():
             copy_trade_enabled=False
         )
     
+    # Observation mode - force notify only, no private key needed
+    if args.observe:
+        config.alert_mode = AlertMode.NOTIFY_ONLY
+        config.wallet_private_key = ""
+        logger.info("Running in OBSERVATION MODE - no real trades will be executed")
+    
     global _bot
     _bot = MemeBot(config)
     
-    # Signal handlers
+    # Backtest mode
+    if args.backtest:
+        from core.backtester import Backtester
+        import asyncio
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        
+        bt = Backtester(_bot.db, config)
+        chain = None
+        if args.backtest_chain == 'sol':
+            chain = Chain.SOLANA
+        elif args.backtest_chain == 'bsc':
+            chain = Chain.BSC
+        
+        result = loop.run_until_complete(bt.run_backtest(
+            chain=chain,
+            start_date=datetime.utcnow() - timedelta(days=args.backtest_days),
+            end_date=datetime.utcnow(),
+            min_score=60
+        ))
+        
+        print(bt.format_backtest_report(result))
+        loop.close()
+        return
+    
+    # Web dashboard mode
+    if args.web:
+        from web.dashboard import WebDashboard, create_dashboard_template
+        create_dashboard_template()
+        
+        dashboard = WebDashboard(_bot, host=args.web_host, port=args.web_port)
+        dashboard.start()
+        
+        logger.info(f"Web dashboard running at http://{args.web_host}:{args.web_port}")
+        
+        # Run bot with dashboard
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        
+        async def run_with_dashboard():
+            # Start bot
+            bot_task = asyncio.create_task(_bot.start())
+            # Keep running
+            while _bot._running:
+                await asyncio.sleep(10)
+            await _bot.stop()
+        
+        async def shutdown():
+            _bot._running = False
+            dashboard.stop()
+            await _bot.stop()
+        
+        try:
+            loop.run_until_complete(run_with_dashboard())
+        except KeyboardInterrupt:
+            loop.run_until_complete(shutdown())
+        finally:
+            loop.close()
+        return
+    
+    # Normal mode
     loop = asyncio.new_event_loop()
     asyncio.set_event_loop(loop)
     

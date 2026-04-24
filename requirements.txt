@@ -1,5 +1,6 @@
 # Meme Bot - Cross-chain Meme Coin Monitor & Trading Bot
 
+# Solana
 solana>=0.30.0
 solana[anchor]>=0.30.0
 solders>=0.20.0
@@ -11,6 +12,10 @@ web3>=6.0.0
 # Async
 aiohttp>=3.9.0
 asyncio-throttle>=1.0.0
+
+# Web Dashboard
+flask>=3.0.0
+flask-cors>=4.0.0
 
 # Utils
 python-dotenv>=1.0.0

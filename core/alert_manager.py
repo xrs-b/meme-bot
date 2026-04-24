@@ -69,6 +69,7 @@ class AlertManager:
     def _format_signal(self, signal: Signal) -> str:
         """Format a signal for Telegram message"""
         chain_emoji = "🟣" if signal.chain == Chain.SOLANA else "🟠"
+        chain_name = "Solana" if signal.chain == Chain.SOLANA else "BSC"
         signal_emoji = {
             SignalType.NEW_COIN: "🆕",
             SignalType.LIQUIDITY_INCREASE: "💧",
@@ -82,24 +83,90 @@ class AlertManager:
         # Score badge
         score_badge = "🟢" if signal.score >= 80 else "🟡" if signal.score >= 60 else "🔴"
         
+        # Market cap (estimate from liquidity * multiplier)
+        market_cap = signal.metadata.get('market_cap_usd', 0)
+        if market_cap <= 0 and signal.price_at_signal > 0 and signal.metadata.get('total_supply', 0) > 0:
+            market_cap = signal.price_at_signal * signal.metadata.get('total_supply', 0)
+        
+        # Volume / Liquidity ratio
+        vol_liq_ratio = 0.0
+        if signal.liquidity_at_signal > 0:
+            vol_liq_ratio = signal.volume_24h_at_signal / signal.liquidity_at_signal
+        
+        # Links
+        if signal.chain == Chain.SOLANA:
+            explorer_link = f"https://solscan.io/token/{signal.token.address}"
+            dex_link = f"https://dexscreener.com/solana/{signal.token.address}"
+        else:
+            explorer_link = f"https://bscscan.com/token/{signal.token.address}"
+            dex_link = f"https://dexscreener.com/bsc/{signal.token.address}"
+        
         message = f"""
-{signal_emoji} *{signal.type.value.upper()} DETECTED* {chain_emoji}
+{signal_emoji} *{signal.type.value.upper()} ALERT* {chain_emoji}
 
-🏷️ *{signal.token.name}* (`{signal.token.symbol}`)
-📛 `{signal.token.address}`
+━━━━━━ *基本信息* ━━━━━━
+🏷️ 代币名: *{signal.token.name}* (`{signal.token.symbol}`)
+🔗 链: {chain_name} {chain_emoji}
+📛 合约: `{signal.token.address}`
+🌐 浏览器: [查看]({explorer_link}) | [DexScreener]({dex_link})
 
-{score_badge} Score: *{signal.score}/100*
-📊 Confidence: {signal.confidence:.0%}
+━━━━━━ *信号评分* ━━━━━━
+{score_badge} 评分: *{signal.score}/100* ({self._score_label(signal.score)})
+📊 置信度: {signal.confidence:.0%}
+📝 {signal.message}
 
-{signal.message}
+━━━━━━ *行情数据* ━━━━━━
+💰 当前价格: `${signal.price_at_signal:,.8f}`
+💵 市值(估算): `${self._format_usd(market_cap)}`
+💧 流动性: `${self._format_usd(signal.liquidity_at_signal)}`
+📊 24h 交易量: `${self._format_usd(signal.volume_24h_at_signal)}`
+📈 Vol/Liq 比: {vol_liq_ratio:.2f}x
 
-💰 Price: `${signal.price_at_signal:,.6f}`
-💧 Liquidity: `${signal.liquidity_at_signal:,.0f}`
-📊 24h Volume: `${signal.volume_24h_at_signal:,.0f}`
+━━━━━━ *交易建议* ━━━━━━
+💎 建议: {self._get_trading_suggestion(signal)}
 
-🕐 {signal.detected_at.strftime('%Y-%m-%d %H:%M:%S')} UTC
+🕐 发现时间: {signal.detected_at.strftime('%Y-%m-%d %H:%M:%S')} UTC
 """
         return message.strip()
+    
+    def _score_label(self, score: int) -> str:
+        if score >= 80:
+            return "⭐ 强烈推荐"
+        elif score >= 70:
+            return "🟢 良好"
+        elif score >= 60:
+            return "🟡 一般"
+        elif score >= 40:
+            return "🟠 观望"
+        else:
+            return "🔴 忽略"
+    
+    def _format_usd(self, value: float) -> str:
+        if value >= 1_000_000_000:
+            return f"${value / 1_000_000_000:.2f}B"
+        elif value >= 1_000_000:
+            return f"${value / 1_000_000:.2f}M"
+        elif value >= 1_000:
+            return f"${value / 1_000:.2f}K"
+        else:
+            return f"${value:.2f}"
+    
+    def _get_trading_suggestion(self, signal: Signal) -> str:
+        """Get trading suggestion based on signal"""
+        if signal.score >= 80:
+            if signal.liquidity_at_signal >= 50000 and signal.volume_24h_at_signal >= 10000:
+                return "✅ 机会极好，可考虑小额埋伏"
+            elif signal.liquidity_at_signal >= 10000:
+                return "✅ 机会良好，轻仓试探"
+            else:
+                return "⚠️ 流动性偏低，控制仓位"
+        elif signal.score >= 60:
+            if signal.liquidity_at_signal >= 5000:
+                return "🟡 机会一般，轻仓观察"
+            else:
+                return "⚠️ 流动性不足，谨慎"
+        else:
+            return "🔴 评分过低，不建议操作"
     
     def _format_trade(self, trade: Trade, mode: AlertMode) -> str:
         """Format a trade for Telegram message"""
@@ -111,7 +178,7 @@ class AlertManager:
             pnl_emoji = "📈" if trade.pnl_percent >= 0 else "📉"
             pnl_text = f"\n{pnl_emoji} P&L: `{trade.pnl_percent:+.2f}%` (`{trade.pnl_usd:+.2f} USD`)"
         
-        auto_text = "🤖 *AUTO-EXECUTED*" if mode == AlertMode.AUTO_TRADE else "👤 *MANUAL*"
+        auto_text = "🤖 *AUTO-EXECUTED*" if mode == AlertMode.AUTO_TRADE else "👀 *OBSERVATION*"
         
         message = f"""
 {action_emoji} *{trade.action.value.upper()} EXECUTED* {chain_emoji}
@@ -121,7 +188,7 @@ class AlertManager:
 💰 Price: `${trade.price:,.6f}`
 💵 Value: `${trade.value_usd:,.2f}`
 
-{signal_emoji} Mode: {auto_text}
+📋 模式: {auto_text}
 
 🔗 [Tx](https://solscan.io/tx/{trade.tx_hash}) | 🕐 {trade.executed_at.strftime('%H:%M:%S')}
 """.strip()
