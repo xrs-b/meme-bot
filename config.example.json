@@ -1,0 +1,31 @@
+{
+  "solana_rpc": "https://api.mainnet-beta.solana.com",
+  "solana_ws": "wss://api.mainnet-beta.solana.com",
+  "bsc_rpc": "https://bsc-dataseed.binance.org",
+  
+  "wallet_address": "YOUR_WALLET_ADDRESS",
+  "wallet_private_key": "YOUR_PRIVATE_KEY",
+  
+  "default_slippage": 5.0,
+  "default_amount_per_trade": 0.1,
+  "max_position_per_token": 1.0,
+  "max_total_position": 10.0,
+  
+  "alert_mode": "notify_only",
+  
+  "min_liquidity": 1000.0,
+  "min_volume_24h": 5000.0,
+  "min_signal_score": 60,
+  
+  "copy_trade_enabled": false,
+  "copy_trade_amount_percent": 50.0,
+  "followed_wallets": [],
+  
+  "data_ttl_days": 7,
+  
+  "telegram_bot_token": "YOUR_BOT_TOKEN",
+  "telegram_chat_id": "YOUR_CHAT_ID",
+  
+  "sol_pools": [],
+  "bsc_pools": []
+}

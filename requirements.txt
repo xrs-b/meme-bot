@@ -1,0 +1,20 @@
+# Meme Bot - Cross-chain Meme Coin Monitor & Trading Bot
+
+solana>=0.30.0
+solana[anchor]>=0.30.0
+solders>=0.20.0
+spl-token>=0.2.0
+
+# BSC
+web3>=6.0.0
+
+# Async
+aiohttp>=3.9.0
+asyncio-throttle>=1.0.0
+
+# Utils
+python-dotenv>=1.0.0
+pydantic>=2.0.0
+
+# Logging
+colorlog>=6.0.0
