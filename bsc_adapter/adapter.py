@@ -22,8 +22,8 @@ PANCAKE_SWAP_FACTORY = "0xcA143Ce32Fe78f1f7019d7d551a6402fC5350c73"
 BUSD = "0xe9e7CEA3DedcA5984780Bafc599bD69ADd087D56"
 WBNB = "0xbb4CdB9CBd36B01bD1cBaEBF2De08d9173bc095c"
 
-from ..core.models import Token, Pool, Chain, TradeAction, BotConfig
-from ..core.database import Database
+from core.models import Token, Pool, Chain, TradeAction, BotConfig
+from core.database import Database
 
 logger = logging.getLogger(__name__)
 
@@ -194,7 +194,7 @@ class BSCAdapter:
                 "type": "function"
             },
             {
-                "inputs": [{"name": "", "type": "address"}],
+                "inputs": [{"name": "", "type": "uint256"}],
                 "name": "allPairs",
                 "outputs": [{"type": "address"}],
                 "stateMutability": "view",

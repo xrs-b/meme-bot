@@ -21,6 +21,7 @@ logger = logging.getLogger(__name__)
 class RiskRule:
     """A risk management rule"""
     name: str
+    description: str = ""
     enabled: bool = True
     # For position-level rules
     max_position_size: float = 0.0      # Max SOL/BNB per position

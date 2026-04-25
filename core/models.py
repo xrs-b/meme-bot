@@ -176,3 +176,8 @@ class BotConfig:
     # Pools to monitor (contract addresses)
     sol_pools: List[str] = field(default_factory=list)
     bsc_pools: List[str] = field(default_factory=list)
+
+
+# Alias for backwards compatibility
+Position = WalletPosition
+

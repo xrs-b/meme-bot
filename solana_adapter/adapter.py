@@ -23,13 +23,13 @@ from solders.message import Message
 import spl.token.constants as TOKEN_CONSTANTS
 
 # For Jupiter DEX
-from jupiter.interface import Jupiter
+from jupiter.interface import JupiterInterface
 
 # For Raydium
 from raydium.raydium import Raydium
 
-from ..core.models import Token, Pool, Chain, TradeAction, BotConfig
-from ..core.database import Database
+from core.models import Token, Pool, Chain, TradeAction, BotConfig
+from core.database import Database
 
 logger = logging.getLogger(__name__)
 
@@ -142,9 +142,22 @@ class SolanaAdapter:
     async def _init_dex_clients(self):
         """Initialize DEX clients"""
         try:
+            from solders.keypair import Keypair
+            from solana.rpc.async_api import AsyncClient
+            import base58
+            
+            # Initialize Solana async client
+            async_client = AsyncClient(self.rpc_url)
+            
+            # Initialize keypair from private key
+            if self.config.wallet_private_key:
+                priv_key = base58.b58decode(self.config.wallet_private_key)
+                keypair = Keypair.from_bytes(priv_key)
+            else:
+                keypair = None
+            
             # Jupiter - for swaps and price
-            self._jupiter = Jupiter()
-            await self._jupiter.init()
+            self._jupiter = JupiterInterface(async_client=async_client, keypair=keypair)
             logger.info("Jupiter client initialized")
         except Exception as e:
             logger.warning(f"Jupiter init failed: {e}")
@@ -303,8 +316,8 @@ class SolanaAdapter:
         
         while self._running:
             try:
-                # Get recent transactions
-                resp = await self.client.get_signatures_for_address(
+                # Get recent transactions (sync client, no await needed)
+                resp = self.client.get_signatures_for_address(
                     self._wallet_pubkey,
                     limit=10
                 )
@@ -316,8 +329,8 @@ class SolanaAdapter:
                         if sig_info.signature == last_signature:
                             break
                         
-                        # Get transaction details
-                        tx_resp = await self.client.get_transaction(
+                        # Get transaction details (sync client, no await needed)
+                        tx_resp = self.client.get_transaction(
                             sig_info.signature,
                             max_supported_transaction_version=0
                         )
