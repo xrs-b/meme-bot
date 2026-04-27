@@ -171,6 +171,28 @@ class SwapExecutor:
             gas_used_sol=data.get("gasUsed", 0)
         )
     
+    async def get_sol_balance(self) -> float:
+        """查询钱包 SOL 余额"""
+        import subprocess, json, os
+        env = os.environ.copy()
+        env["PATH"] = "/root/.local/bin:" + env.get("PATH", "")
+        result = subprocess.run([
+            "curl", "-s", "-X", "POST",
+            "https://api.mainnet-beta.solana.com",
+            "-H", "Content-Type: application/json",
+            "-d", json.dumps({
+                "jsonrpc": "2.0", "id": 1,
+                "method": "getBalance",
+                "params": [self.wallet_address]
+            })
+        ], capture_output=True, text=True, timeout=10, env=env)
+        try:
+            data = json.loads(result.stdout)
+            lamports = data.get("result", {}).get("value", 0)
+            return lamports / 1e9
+        except:
+            return 0.0
+
     async def get_balance(self, token_address: str) -> float:
         """
         查询钱包余额

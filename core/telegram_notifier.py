@@ -60,36 +60,32 @@ class TelegramNotifier:
         self.bot_token = bot_token
         self.chat_id = chat_id
         self.api_url = f"https://api.telegram.org/bot{bot_token}"
-        self._session: Optional[aiohttp.ClientSession] = None
-
-    async def _get_session(self) -> aiohttp.ClientSession:
-        if self._session is None or self._session.closed:
-            self._session = aiohttp.ClientSession()
-        return self._session
 
     async def close(self):
-        if self._session and not self._session.closed:
-            await self._session.close()
+        pass  # 不再持有 session，无需关闭
 
-    async def send_message(self, text: str, parse_mode: str = "Markdown") -> bool:
-        """发送消息到 Telegram"""
+    async def send_message(self, text: str, reply_markup: dict = None) -> bool:
+        """发送消息到 Telegram（纯文本，不用 Markdown 避免解析报错）"""
         if not self.bot_token or not self.chat_id:
-            logger.warning(f"[TelegramNotifier] 未配置 bot_token 或 chat_id，跳过: {text[:50]}...")
+            logger.warning(f"[TelegramNotifier] 未配置 bot_token 或 chat_id")
             return False
 
         try:
-            session = await self._get_session()
+            import httpx
             url = f"{self.api_url}/sendMessage"
             payload = {
                 "chat_id": self.chat_id,
                 "text": text,
-                "parse_mode": parse_mode,
-                "disable_web_page_preview": True
+                "disable_web_page_preview": True,
+                "parse_mode": "Markdown"
             }
-            async with session.post(url, json=payload, timeout=aiohttp.ClientTimeout(total=10)) as resp:
-                result = await resp.json()
+            if reply_markup:
+                payload["reply_markup"] = reply_markup
+            
+            async with httpx.AsyncClient(timeout=httpx.Timeout(10.0)) as client:
+                resp = await client.post(url, json=payload)
+                result = resp.json()
                 if result.get("ok"):
-                    logger.info(f"[TelegramNotifier] 消息发送成功")
                     return True
                 else:
                     logger.error(f"[TelegramNotifier] Telegram 错误: {result.get('description')}")

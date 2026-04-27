@@ -48,21 +48,23 @@ class PositionSizeConfig:
 @dataclass
 class RiskConfig:
     """风控参数"""
-    # 止损配置
-    stop_loss_pct: float = 10.0            # 止损 %
+    # 余额门槛（低于此值自动切仅推送模式）
+    min_balance_sol: float = 1.0
     
-    # NEW 阶段止盈
-    new_take_profit_pct: float = 50.0      # 止盈 %
+    # 每笔交易金额（SOL）
+    amount_per_trade_sol: float = 1.0
     
-    # MIGRATING 阶段止盈
-    migrating_take_profit_pct: float = 80.0 # 止盈 %
+    # 止盈（盈利到此百分比立即全卖）
+    take_profit_pct: float = 35.0
     
-    # 跟踪止损（从最高点回撤多少触发）
-    trailing_stop_pct: float = 15.0        # 跟踪止损 %
+    # 止损 %（0 = 不设置止损）
+    stop_loss_pct: float = 0.0
+    
+    # 跟踪止损（从最高点回撤多少触发，0 = 不使用）
+    trailing_stop_pct: float = 0.0
     
     # 日内风控
     daily_loss_limit_pct: float = 3.0      # 24h 最大亏损 % 总资金
-    single_trade_loss_limit_pct: float = 0.5  # 单笔最大亏损 % 总资金
     
     # 熔断
     consecutive_loss_limit: int = 3         # 连续亏损 N 笔 → 禁止开仓 1 小时

@@ -49,7 +49,7 @@ WALLET_ADDRESS = "DHuirUA2btsoFDpLHofjgZs9EE73tPVEB6Bcsm1gEd47"  # OKX 钱包
 config_mgr = ConfigManager(CONFIG_PATH)
 pm = PositionManager()
 executor = SwapExecutor(WALLET_ADDRESS)
-de = DecisionEngine(config_mgr, pm)
+de = DecisionEngine(config_mgr, pm, executor)
 
 
 async def position_monitor_loop():
@@ -101,50 +101,33 @@ async def position_monitor_loop():
                     else:
                         logger.error(f"Stop loss failed: {exec_result.error}")
                 
-                # 止盈 → 发送确认（用户决定是否卖）
+                # 止盈 → 自动执行卖出
                 elif action == "TAKE_PROFIT":
-                    slip = config_mgr.config.slippage_migrating_pct
-                    markup = {
-                        "inline_keyboard": [[
-                            {"text": "✅ 确认卖出", "callback_data": f"CONFIRM_SELL:{p.id}"},
-                            {"text": "❌ 继续持有", "callback_data": f"REJECT:{p.id}"}
-                        ]]
-                    }
-                    _notify_telegram(
-                        f"🎯 止盈触发！\n"
-                        f"{p.symbol}: {result['pnl_pct']:+.1f}%\n"
-                        f"当前价: ${current_price:.6f}\n\n"
-                        f"点击确认立即卖出",
-                        markup=markup
-                    )
-                
-                # 毕业 → 通知用户决策
-                elif action == "GRADUATED":
-                    markup = {
-                        "inline_keyboard": [[
-                            {"text": "✅ 全部卖出", "callback_data": f"CONFIRM_SELL:{p.id}"},
-                            {"text": "❌ 继续持有", "callback_data": f"REJECT:{p.id}"}
-                        ]]
-                    }
-                    _notify_telegram(
-                        f"🎓 代币毕业！\n"
-                        f"{p.symbol} 已在 PumpSwap 上市\n"
-                        f"当前浮盈: {result['pnl_pct']:+.1f}%\n\n"
-                        f"请决定：",
-                        markup=markup
-                    )
-                
-                # 跟踪止损 → 立即执行
-                elif action == "TRAILING_STOP":
                     slip = config_mgr.config.slippage_migrating_pct
                     exec_result = await executor.sell_token(p.token_address, p.quantity, slippage_pct=slip)
                     if exec_result.success:
                         pm.close_position(p.id, exec_result.to_amount,
-                                        reason="TRAILING_STOP",
+                                        reason="TAKE_PROFIT",
                                         pnl_sol=result["pnl_sol"],
                                         pnl_pct=result["pnl_pct"])
                         de.on_trade_result(result["pnl_sol"], was_successful=(result["pnl_sol"] >= 0))
-                        _notify_telegram(f"📉 跟踪止损\n{p.symbol}: {result['pnl_pct']:+.1f}%\nTX: {exec_result.tx_hash}")
+                        _notify_telegram(f"🎯 止盈自动卖出\n{p.symbol}: {result['pnl_pct']:+.1f}%\n获得: {exec_result.to_amount:.4f} SOL\nTX: {exec_result.tx_hash}")
+                    else:
+                        logger.error(f"Take profit failed: {exec_result.error}")
+                
+                # 毕业 → 自动执行卖出
+                elif action == "GRADUATED":
+                    slip = config_mgr.config.slippage_migrating_pct
+                    exec_result = await executor.sell_token(p.token_address, p.quantity, slippage_pct=slip)
+                    if exec_result.success:
+                        pm.close_position(p.id, exec_result.to_amount,
+                                        reason="GRADUATED",
+                                        pnl_sol=result["pnl_sol"],
+                                        pnl_pct=result["pnl_pct"])
+                        de.on_trade_result(result["pnl_sol"], was_successful=(result["pnl_sol"] >= 0))
+                        _notify_telegram(f"🎓 毕业自动卖出\n{p.symbol}: {result['pnl_pct']:+.1f}%\n获得: {exec_result.to_amount:.4f} SOL\nTX: {exec_result.tx_hash}")
+                    else:
+                        logger.error(f"Graduated sell failed: {exec_result.error}")
             
             # 清理过期忽略记录
             de.cleanup_ignored()
@@ -152,7 +135,7 @@ async def position_monitor_loop():
         except Exception as e:
             logger.error(f"Monitor loop error: {e}")
         
-        await asyncio.sleep(15)
+        await asyncio.sleep(10)
 
 
 def _get_token_price(token_address: str) -> dict:
@@ -176,26 +159,23 @@ def _get_token_price(token_address: str) -> dict:
 
 
 def _notify_telegram(message: str, markup: dict = None):
-    """通过 Telegram Bot 发送通知"""
-    import aiohttp, asyncio
+    """通过 Telegram Bot 发送通知（异步，不阻塞）"""
+    asyncio.create_task(_aio_post(message, markup))
+
+async def _aio_post(message: str, markup: dict = None):
+    import httpx
     url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
     params = {
         "chat_id": "6941139355",
         "text": message,
-        "parse_mode": "Markdown"
     }
     if markup:
         params["reply_markup"] = json.dumps(markup)
-    
     try:
-        asyncio.create_task(_aio_post(url, params))
-    except:
-        pass
-
-async def _aio_post(url: str, params: dict):
-    import aiohttp
-    async with aiohttp.ClientSession() as session:
-        await session.post(url, json=params, timeout=aiohttp.ClientTimeout(total=10))
+        async with httpx.AsyncClient(timeout=httpx.Timeout(10.0)) as client:
+            await client.post(url, json=params)
+    except Exception as e:
+        logger.warning(f"Telegram notify failed: {e}")
 
 
 async def main():

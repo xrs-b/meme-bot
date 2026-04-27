@@ -11,6 +11,9 @@ from datetime import datetime, timezone, timedelta
 
 sys.path.insert(0, '/root/.openclaw/workspace/meme-bot')
 
+# Trading config for mode detection
+from trading.config_manager import ConfigManager, BotMode
+
 DB_PATH = '/root/.openclaw/workspace/meme-bot/meme_bot.db'
 
 def _run_cmd(args):
@@ -471,9 +474,28 @@ def scan_and_send(min_score=20, max_per_scan=3):
 🕐 {now_str}"""
         
         if notifier:
-            _save_signal(tok, tok['score'])  # Only save when actually sending to Telegram
+            _save_signal(tok, tok['score'])
+            
+            # 检查是否为推送+交易模式，是则添加确认按钮
+            reply_markup = None
+            try:
+                cfg = ConfigManager()
+                if cfg.mode == BotMode.SIGNAL_AND_TRADE:
+                    # 按钮数据：买入确认、拒绝、忽略
+                    addr = tok['address']
+                    reply_markup = {
+                        "inline_keyboard": [[
+                            {"text": "✅ 确认买入", "callback_data": f"CONFIRM_BUY_FROM_SCAN:{addr}"},
+                            {"text": "❌ 拒绝", "callback_data": f"REJECT_SCAN:{addr}"},
+                            {"text": "🚫 忽略此币", "callback_data": f"IGNORE_SCAN:{addr}"}
+                        ]]
+                    }
+            except Exception:
+                pass  # 配置读取失败则不添加按钮
+            
             async def send():
-                await notifier.send_message(msg)
+                addr = tok['address']
+                await notifier.send_message(msg, reply_markup=reply_markup)
             asyncio.run(send())
             print(f"✅ Sent: {tok['symbol']} (score={tok['score']}, dev_holding={tok['dev_holding']:.1f}%, sniper={tok['sniper']:.1f}%, top10={tok['top10']:.1f}%)")
             sent_count += 1

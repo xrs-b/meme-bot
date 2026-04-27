@@ -97,11 +97,11 @@ class TelegramListener:
         callback_data = callback_query.get("data", "")
         
         if callback_data:
-            await self._handle_callback(chat_id, callback_data, msg)
+            await self._handle_callback(chat_id, callback_data, msg, callback_query)
         elif text:
             await self._handle_command(chat_id, text, msg)
     
-    async def _handle_callback(self, chat_id: int, data: str, msg: dict):
+    async def _handle_callback(self, chat_id: int, data: str, msg: dict, callback_query: dict):
         """处理按钮回调"""
         parts = data.split(":", 1)
         action = parts[0]
@@ -115,6 +115,10 @@ class TelegramListener:
             await self._confirm_sell(chat_id, payload, msg)
         elif action == "IGNORE_TOKEN":
             await self._ignore_token(chat_id, payload, msg)
+        elif action == "COPY_SCAN":
+            # 点"复制合约地址"按钮 → 先回应回调（消除转圈），再发纯地址
+            await self._call("answerCallbackQuery", callback_query_id=callback_query.get("id"))
+            await self._send_message(chat_id, payload, parse_mode=None)
     
     async def _handle_command(self, chat_id: int, text: str, msg: dict):
         """处理文本命令"""
